@@ -1,0 +1,56 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparer le dossier www
+        run: |
+          mkdir -p www/icons
+          cp index.html sw.js manifest.webmanifest www/
+          cp icon-192.png icon-512.png icon-maskable-512.png www/icons/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Installer les dependances
+        run: npm install
+
+      - name: Creer le projet Android
+        run: npx cap add android
+
+      - name: Icones
+        run: |
+          python3 -m pip install --quiet pillow
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            dir=android/app/src/main/res/mipmap-${d%%:*}; px=${d##*:}
+            python3 -c "import sys;from PIL import Image;d,px=sys.argv[1],int(sys.argv[2]);im=Image.open('www/icons/icon-512.png').resize((px,px));[im.save(d+'/'+n) for n in ('ic_launcher.png','ic_launcher_round.png','ic_launcher_foreground.png')]" "$dir" "$px"
+          done
+        continue-on-error: true
+
+      - name: Synchroniser le site
+        run: npx cap sync android
+
+      - name: Compiler l APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publier l APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telc-b2-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
