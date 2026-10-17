@@ -1,0 +1,59 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:          # bouton « Run workflow » dans l'onglet Actions
+  push:
+    tags: ['v*']              # ou : git tag v1.0.0 && git push --tags
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Installer les dépendances
+        run: npm install
+
+      - name: Créer le projet Android (une seule fois, à chaque build)
+        run: npx cap add android
+
+      - name: Icônes (copie des icônes PWA comme icône du lanceur)
+        run: |
+          python3 -m pip install --quiet pillow
+          for d in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            dir=android/app/src/main/res/mipmap-${d%%:*}; px=${d##*:}
+            python3 - "$dir" "$px" <<'PY'
+          import sys
+          from PIL import Image
+          d,px=sys.argv[1],int(sys.argv[2])
+          im=Image.open('www/icons/icon-512.png').resize((px,px))
+          for n in ('ic_launcher.png','ic_launcher_round.png','ic_launcher_foreground.png'):
+              im.save(f'{d}/{n}')
+          PY
+          done
+        continue-on-error: true   # l'icône par défaut sera gardée si cette étape échoue
+
+      - name: Synchroniser le site web dans l'app
+        run: npx cap sync android
+
+      - name: Compiler l'APK (debug, installable directement)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publier l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telc-b2-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
